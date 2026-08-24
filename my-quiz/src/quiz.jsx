@@ -4,6 +4,7 @@ import mlnData from "./mlnData.js";
 
 const OPTION_LABELS = ["a", "b", "c", "d"];
 const SESSION_KEY = "quiz_session_start";
+const STATE_KEY = "quiz_state";
 const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
 function getOptionKeys(q) {
@@ -46,16 +47,39 @@ function getRemainingTime() {
   }
 }
 
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function saveState(state) {
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function clearSavedState() {
+  try {
+    localStorage.removeItem(STATE_KEY);
+    localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
 export default function QuizApp() {
-  const [dataset, setDataset] = useState("hcm");
   const [sessionExpired, setSessionExpired] = useState(() => checkSessionExpired());
   const [showExpiredMsg, setShowExpiredMsg] = useState(false);
 
-  const questions = dataset === "hcm" ? hcmData : mlnData;
+  // Restore from localStorage or use defaults
+  const saved = sessionExpired ? null : loadState();
+  const [dataset, setDataset] = useState(saved?.dataset || "hcm");
+  const [current, setCurrent] = useState(saved?.current || 0);
+  const [selected, setSelected] = useState(saved?.selected || {});
+  const [bookmarks, setBookmarks] = useState(saved?.bookmarks || {});
 
-  const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState({});
-  const [bookmarks, setBookmarks] = useState({});
+  const questions = dataset === "hcm" ? hcmData : mlnData;
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const [jumpValue, setJumpValue] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -80,6 +104,13 @@ export default function QuizApp() {
   }).length;
   const incorrectCount = Object.keys(selected).length - correctCount;
 
+  // Save state to localStorage on every change
+  useEffect(() => {
+    if (!sessionExpired) {
+      saveState({ dataset, current, selected, bookmarks });
+    }
+  }, [dataset, current, selected, bookmarks, sessionExpired]);
+
   // Session expiry logic
   useEffect(() => {
     if (sessionExpired) {
@@ -95,6 +126,7 @@ export default function QuizApp() {
         setSelected({});
         setBookmarks({});
         setCurrent(0);
+        clearSavedState();
         clearInterval(interval);
       }
     }, 60 * 1000); // check every minute
@@ -103,9 +135,11 @@ export default function QuizApp() {
   }, []);
 
   useEffect(() => {
-    setCurrent(0);
-    setSelected({});
-    setBookmarks({});
+    if (!sessionExpired) {
+      setCurrent(0);
+      setSelected({});
+      setBookmarks({});
+    }
     setShowBookmarkPanel(false);
   }, [dataset]);
 
@@ -203,6 +237,7 @@ export default function QuizApp() {
     setSelected({});
     setBookmarks({});
     setCurrent(0);
+    setDataset("hcm");
   };
 
   const sidebarMobileStyle = {
