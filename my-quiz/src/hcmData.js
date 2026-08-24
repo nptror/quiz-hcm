@@ -1,4 +1,4 @@
-const vnrData = [
+const hcmData = [
   {
     "question": "Theo Hồ Chí Minh, \"Muốn xây dựng chủ nghĩa xã hội, trước hết cần có",
     "options": {
@@ -6231,4 +6231,4 @@ const vnrData = [
     "answer": "A"
   }
 ];
-export default vnrData;
+export default hcmData;

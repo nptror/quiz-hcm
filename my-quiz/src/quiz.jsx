@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import vnrData from "./vnrData.js";
+import hcmData from "./hcmData.js";
 import mlnData from "./mlnData.js";
 
 const OPTION_LABELS = ["a", "b", "c", "d"];
+const SESSION_KEY = "quiz_session_start";
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
 function getOptionKeys(q) {
   return OPTION_LABELS.filter((k) => q.options[k]);
@@ -15,9 +17,41 @@ function getStatusColor(status) {
   return "#cbd5e1";
 }
 
+function checkSessionExpired() {
+  try {
+    const startTime = localStorage.getItem(SESSION_KEY);
+    if (!startTime) return true;
+    return Date.now() - parseInt(startTime) > SESSION_DURATION;
+  } catch {
+    return true;
+  }
+}
+
+function initSession() {
+  try {
+    if (!localStorage.getItem(SESSION_KEY)) {
+      localStorage.setItem(SESSION_KEY, Date.now().toString());
+    }
+  } catch {}
+}
+
+function getRemainingTime() {
+  try {
+    const startTime = localStorage.getItem(SESSION_KEY);
+    if (!startTime) return SESSION_DURATION;
+    const elapsed = Date.now() - parseInt(startTime);
+    return Math.max(0, SESSION_DURATION - elapsed);
+  } catch {
+    return SESSION_DURATION;
+  }
+}
+
 export default function QuizApp() {
-  const [dataset, setDataset] = useState("vnr");
-  const questions = dataset === "vnr" ? vnrData : mlnData;
+  const [dataset, setDataset] = useState("hcm");
+  const [sessionExpired, setSessionExpired] = useState(() => checkSessionExpired());
+  const [showExpiredMsg, setShowExpiredMsg] = useState(false);
+
+  const questions = dataset === "hcm" ? hcmData : mlnData;
 
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState({});
@@ -45,6 +79,28 @@ export default function QuizApp() {
     return qi && key === (qi.answer ? qi.answer.toLowerCase() : "");
   }).length;
   const incorrectCount = Object.keys(selected).length - correctCount;
+
+  // Session expiry logic
+  useEffect(() => {
+    if (sessionExpired) {
+      setShowExpiredMsg(true);
+      return;
+    }
+    initSession();
+
+    const interval = setInterval(() => {
+      if (checkSessionExpired()) {
+        setSessionExpired(true);
+        setShowExpiredMsg(true);
+        setSelected({});
+        setBookmarks({});
+        setCurrent(0);
+        clearInterval(interval);
+      }
+    }, 60 * 1000); // check every minute
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     setCurrent(0);
@@ -129,6 +185,26 @@ export default function QuizApp() {
   const bookmarkCount = Object.keys(bookmarks).length;
   const isBookmarked = !!bookmarks[current];
 
+  // Format remaining time
+  const [remaining, setRemaining] = useState(getRemainingTime());
+  useEffect(() => {
+    const t = setInterval(() => setRemaining(getRemainingTime()), 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+
+  const handleRestart = () => {
+    try {
+      localStorage.setItem(SESSION_KEY, Date.now().toString());
+    } catch {}
+    setSessionExpired(false);
+    setShowExpiredMsg(false);
+    setSelected({});
+    setBookmarks({});
+    setCurrent(0);
+  };
+
   const sidebarMobileStyle = {
     position: "fixed", top: 0, left: 0, width: 300, height: "100dvh",
     zIndex: 50, overflowY: "auto", padding: "80px 16px 24px",
@@ -152,10 +228,10 @@ export default function QuizApp() {
             <span style={{ fontSize: 28 }}>🎓</span>
             <div style={{ minWidth: 0 }}>
               <h1 style={{ margin: 0, fontSize: "clamp(0.85rem, 3vw, 1.2rem)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {dataset === "vnr" ? "Tư tưởng HCM" : "Mác – Lênin"}
+                {dataset === "hcm" ? "Tư tưởng HCM" : "Mác – Lênin"}
               </h1>
               <p className="subtitle" style={{ margin: 0, fontSize: "0.7rem", color: "rgba(255,255,255,0.75)" }}>
-                {dataset === "vnr" ? "HCM202 – " + vnrData.length + " câu hỏi" : "MLN131 – " + mlnData.length + " câu hỏi"}
+                {dataset === "hcm" ? "HCM202 – " + hcmData.length + " câu hỏi" : "MLN131 – " + mlnData.length + " câu hỏi"}
               </p>
             </div>
           </div>
@@ -163,7 +239,7 @@ export default function QuizApp() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             {/* Dataset switcher */}
             <div style={{ display: "flex", background: "rgba(0,0,0,0.2)", borderRadius: 12, padding: 3, gap: 3 }}>
-              {["VNR", "MLN"].map((ds) => {
+              {["HCM", "MLN"].map((ds) => {
                 const dsKey = ds.toLowerCase();
                 const active = dataset === dsKey;
                 return (
@@ -195,6 +271,24 @@ export default function QuizApp() {
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 40, backdropFilter: "blur(2px)" }} />
+      )}
+
+      {/* Session expired overlay */}
+      {showExpiredMsg && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+          <div style={{ background: "#fff", borderRadius: 24, padding: "32px 28px", maxWidth: 380, width: "90%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>⏰</div>
+            <h2 style={{ margin: "0 0 8px", fontSize: "1.2rem", fontWeight: 700, color: "#0f172a" }}>Phiên đã hết hạn</h2>
+            <p style={{ margin: "0 0 20px", fontSize: "0.88rem", color: "#64748b", lineHeight: 1.6 }}>
+              Phiên ôn tập đã hết hạn sau 24 giờ.
+              <br />Tất cả tiến trình đã được đặt lại.
+            </p>
+            <button onClick={handleRestart}
+              style={{ padding: "12px 32px", borderRadius: 14, background: "linear-gradient(135deg, #dc2626, #ef4444)", color: "#fff", border: "none", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", boxShadow: "0 4px 14px rgba(220,38,38,0.4)" }}>
+              Bắt đầu lại 🚀
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ===== MAIN ===== */}
@@ -281,8 +375,8 @@ export default function QuizApp() {
                   <span style={{ background: "#fef2f2", color: "#b91c1c", fontWeight: 700, padding: "5px 12px", borderRadius: 10, fontSize: "0.82rem" }}>
                     Câu {current + 1}/{total}
                   </span>
-                  <span style={{ background: dataset === "vnr" ? "#fef2f2" : "#eff6ff", color: dataset === "vnr" ? "#dc2626" : "#1d4ed8", padding: "4px 10px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600 }}>
-                    {dataset === "vnr" ? "HCM202" : "MLN131"}
+                  <span style={{ background: dataset === "hcm" ? "#fef2f2" : "#eff6ff", color: dataset === "hcm" ? "#dc2626" : "#1d4ed8", padding: "4px 10px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600 }}>
+                    {dataset === "hcm" ? "HCM202" : "MLN131"}
                   </span>
                 </div>
                 <button onClick={toggleBookmark}
@@ -354,8 +448,8 @@ export default function QuizApp() {
 
             {/* Info bar */}
             <div style={{ background: "#fff", padding: "10px 16px", borderRadius: 14, border: "1px solid #f1f5f9", fontSize: "0.75rem", color: "#94a3b8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>💡 Kéo trái/phải để chuyển câu • Nhấn ★ để đánh dấu</span>
-              <span style={{ fontWeight: 600, color: "#64748b" }}>{dataset === "vnr" ? "Tư tưởng HCM" : "Mác–Lênin"}</span>
+              <span>💡 Kéo trái/phải để chuyển câu • Nhấn ★ để đánh dấu{!sessionExpired ? ` • Còn ${hours}h ${minutes}m` : ''}</span>
+              <span style={{ fontWeight: 600, color: "#64748b" }}>{dataset === "hcm" ? "Tư tưởng HCM" : "Mác–Lênin"}</span>
             </div>
           </div>
         </div>
@@ -369,7 +463,7 @@ export default function QuizApp() {
       )}
 
       <footer style={{ background: "#0f172a", color: "#94a3b8", padding: "20px 16px", marginTop: 32, borderTop: "1px solid #1e293b", textAlign: "center", fontSize: "0.75rem" }}>
-        <p>© 2026 Ứng dụng Ôn tập Trắc nghiệm • HCM202 ({vnrData.length} câu) &amp; MLN131 ({mlnData.length} câu)</p>
+        <p>© 2026 Ứng dụng Ôn tập Trắc nghiệm • HCM202 ({hcmData.length} câu) &amp; MLN131 ({mlnData.length} câu)</p>
       </footer>
 
       <style>{`
